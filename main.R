@@ -5,6 +5,10 @@ library(ghyp)
 library(tidyverse)
 library(lubridate)
 library(gridExtra)
+library(quantmod)
+library(tidyquant)
+
+new_data = TRUE
 
 
 gg_color_hue <- function(n) {
@@ -16,6 +20,11 @@ gg_color_hue <- function(n) {
 IR <- read.csv("https://datahub.io/core/bond-yields-us-10y/r/monthly.csv", stringsAsFactors = F) %>% 
   mutate(Date = as.Date(Date, format = '%Y-%m-%d')+1)
 
+if(new_data == T){
+path <- "https://query1.finance.yahoo.com/v7/finance/download/%5ETNX?period1=-252374400&period2=1684800000&interval=1d&events=history&includeAdjustedClose=true"
+IR <- read.csv(path) %>%
+  select(Date, Rate = Adj.Close) %>% mutate(Date = as.Date(Date), Rate = as.numeric(Rate))
+}
 IR %>% plot(type = 'l')
 
 # SPX
@@ -30,8 +39,11 @@ SPX <-
 
 for (i in 1:(dim(SPX)[1]-1)){
   SPX[i+1,1] <- SPX[i,1] %m-% months(1)
-  #SPX[i,1] <- SPX[i,1] %m+% months(1) - 1
-  #if(i == 167){SPX[i+1,1] <- SPX[i+1,1] %m+% months(1) - 1}
+}
+
+if(new_data == T){
+SPX <- read.csv("https://query1.finance.yahoo.com/v7/finance/download/%5ESPX?period1=-1325635200&period2=1684800000&interval=1d&events=history&includeAdjustedClose=true") %>%
+  select(Date, SPX = Adj.Close) %>% mutate(Date = as.Date(Date))
 }
 
 
@@ -39,18 +51,20 @@ for (i in 1:(dim(SPX)[1]-1)){
 HPI <- read.csv2('HPI_PO_monthly_hist.csv', stringsAsFactors = F) %>% 
   mutate(Date = as.Date(Month, format = '%d.%m.%Y')) %>% select(Date, HPI = USA)
 
-joined <- IR %>% full_join(SPX) %>% full_join(HPI) %>%
+joined <- IR %>% full_join(SPX) %>% #full_join(HPI) %>%
   arrange(Date) #%>% filter(Date >= '2007-01-01') 
-joined[c(809:816),2] <- c(0.678,0.678,0.857,0.929,0.917,1.078,1.426,1.676)
+#joined[c(809:816),2] <- c(0.678,0.678,0.857,0.929,0.917,1.078,1.426,1.676)
 
-combined <- joined %>% filter(Date  >= '1985-01-01') %>%
-  mutate(HPI_return = (HPI - lag(HPI,3))/ lag(HPI,3),
+combined <- joined %>% filter(Date  >= '1985-01-02') %>% filter(WEEKDAY(Date) == 3) %>% group_by(substr(Date, 1, 7)) %>% mutate(n = 1:n()) %>%
+  filter(n == max(n)) %>% ungroup %>% select(Date, Rate, SPX) %>%
+  mutate(
          SP500_return = (SPX - lag(SPX,3))/ lag(SPX,3),
          SP500_scaled = (SPX/first(SPX))*100,
          IR_return_scaled = (Rate/first(Rate))*100,
          IR_return = (Rate - lag(Rate,3))/ lag(Rate,3),
          IR_return = lead(IR_return,2),
-         HPI_return_n = scale(HPI_return)[,1],
+         #HPI_return = (HPI - lag(HPI,3))/ lag(HPI,3),
+         #HPI_return_n = scale(HPI_return)[,1],
          SP500_return_n = scale(SP500_return)[,1],
          IR_return_n = scale(IR_return)[,1]) %>%
   filter(is.na(SP500_return) == F) %>% filter(Date  >= '2000-01-01') %>% filter(is.na(IR_return) == F)
@@ -61,24 +75,24 @@ combined_crisis <- combined %>% filter(as.numeric(substr(Date,1,4)) >= 2007 &
                                          as.numeric(substr(Date,1,4)) <= 2008) 
 options(scipen = 5)
 
-IR <- ggplot(combined, aes(x = Date)) + 
+IR_plot <- ggplot(combined, aes(x = Date)) + 
   geom_line(aes(y = Rate, col = 'IR'), col = 'black') +
   ylab('Interest Rate')
 
 png('IR.png', width = 1920*2, height = 1080*2,res = 200*2)
-print(IR)
+print(IR_plot)
 dev.off()
 
-SPX <-   ggplot(combined, aes(x = Date)) + 
+SPX_plot <-   ggplot(combined, aes(x = Date)) + 
   geom_line(aes(y = SP500_scaled, col = 'IR'), col = 'black') +
   ylab('S&P 500 Index')
 
 png('SPX.png', width = 1920*2, height = 1080*2,res = 200*2)
-print(SPX)
+print(SPX_plot)
 dev.off()
 
 png('SPX_IR.png', width = 1920*2, height = 1080*2,res = 200*2)
-grid.arrange(SPX,IR, nrow = 2)
+grid.arrange(SPX_plot,IR_plot, nrow = 2)
 dev.off()
 
 plot(combined$HPI_return_n,combined$IR_return_n, xlim = c(-4,4), ylim = c(-4,4), pch = 19)
@@ -103,8 +117,8 @@ qghyp(seq(from=0, to =1, by = 0.001),SP500_NIG) %>% density %>% lines(col = 'cad
 grid()
 legend('topleft',c('empirical distibution', 'fitted NIG distibution'), lty = c(1,2), lwd = 2, col = c('black','cadetblue3'))
 
-# tranformation into uniform vectors - since in that implementation copulas are fitted on uniformly distibuted margins
-# we are using previously perfomred distibution fitting
+# transformation into uniform vectors - since in that implementation copulas are fitted on uniformly distibuted margins
+# we are using previously performed distribution fitting
 uniform_IR_1 <- combined %>% select(IR_return) %>% pghyp(IR_NIG)
 uniform_WIG <- combined %>% select(SP500_return) %>% pghyp(SP500_NIG)
 hist(uniform_IR_1) # since we are transforming empirical data - it will be as good as our distibution fitting
@@ -364,10 +378,10 @@ library(rgl); library(MASS)
 open3d()
 mfrow3d(1, 2)
 den3d_emp <- kde2d(combined$SP500_return, combined$IR_return)
-persp3d(den3d_emp,col="lightblue", box = T, ticktype = 'detailed',xlim=c(-0.2,0.2),ylim =c(-0.2,0.2), zlim = c(0,100))
+persp3d(den3d_emp,col="lightblue", box = T, ticktype = 'detailed',xlim=c(-0.2,0.2),ylim =c(-0.2,0.2), zlim = c(0,30))
 next3d()
 den3d_sim <- kde2d(simulated_IR, simulated_SP500)
-persp3d(den3d_sim,col="chartreuse2",add = F,xlim=c(-0.2,0.2),ylim =c(-0.2,0.2))
+persp3d(den3d_sim,col="chartreuse2",add = F,xlim=c(-0.2,0.2),ylim =c(-0.2,0.2), zlim = c(0,30))
 
 open3d()
 mfrow3d(1, 2)
