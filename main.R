@@ -7,7 +7,7 @@ library(lubridate)
 library(gridExtra)
 library(quantmod)
 library(tidyquant)
-
+ 
 new_data = TRUE
 
 
@@ -84,7 +84,7 @@ print(IR_plot)
 dev.off()
 
 SPX_plot <-   ggplot(combined, aes(x = Date)) + 
-  geom_line(aes(y = SP500_scaled, col = 'IR'), col = 'black') +
+  geom_line(aes(y = SP500_scaled/1000, col = 'IR'), col = 'black') +
   ylab('S&P 500 Index')
 
 png('SPX.png', width = 1920*2, height = 1080*2,res = 200*2)
